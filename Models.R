@@ -20,12 +20,12 @@ library(tseries)
 # Determine total length of the series
 n <- length(monthly_interp_price_ts)
 
-# Define forecast horizon (6 months) and training window (5 years = 60 months)
+# Define forecast horizon (6 months) and training window (10 years = 120 months)
+# Change depending on plot and whether we are doing 10yr or full dataset
 horizon <- 6
-training_length <- 12*5
+training_length <- n-6
 
 # Define indices for the training and test (actual) periods
-# Training: last 60 months prior to the last 6 months
 train_start_index <- n - horizon - training_length + 1
 train_end_index <- n - horizon
 
@@ -37,117 +37,230 @@ test_end_index <- n
 train_data <- window(monthly_interp_price_ts, start = time(monthly_interp_price_ts)[train_start_index],
                      end = time(monthly_interp_price_ts)[train_end_index])
 
-plot(decompose(train_data))
+#plot(decompose(train_data))
+# Decompose the time series
+d <- decompose(train_data)
+
+# Set up a 4-panel layout; adjust margins as needed
+par(mfrow = c(4, 1), mar = c(4, 4, 2, 1))
+
+# Plot the observed series
+plot(d$x,
+     main = "Overall Additive Decomposition of Full Training Data",
+     xlab = "Year",
+     ylab = "Observed Price")
+
+# Plot the trend component
+plot(d$trend,
+     main = "Trend Component",
+     xlab = "Year",
+     ylab = "Trend")
+
+# Plot the seasonal component
+plot(d$seasonal,
+     main = "Seasonal Component",
+     xlab = "Year",
+     ylab = "Seasonal Effect")
+
+# Plot the random (remainder) component
+plot(d$random,
+     main = "Random Component",
+     xlab = "Year",
+     ylab = "Residuals")
 #plot(decompose(train_data,type="multiplicative"))
 
 actual_data <- window(monthly_interp_price_ts, start = time(monthly_interp_price_ts)[test_start_index],
                       end = time(monthly_interp_price_ts)[test_end_index])
 
 
-
-
 # Fit the ETS model on the training data
-interpolated_ets_MAA <- ets(train_data, model = "MAA")
-interpolated_ets_MMM <- ets(train_data, model = "MMM")
-interpolated_ets_AAA <- ets(train_data, model = "AAA")
+#interpolated_ets_MAA <- ets(train_data, model = "MAA")
+#interpolated_ets_MMM <- ets(train_data, model = "MMM")
+#interpolated_ets_AAA <- ets(train_data, model = "AAA")
+interpolated_ets_MAN <- ets(train_data, model = "MAN")
+interpolated_ets_MMN <- ets(train_data, model = "MMN")
+interpolated_ets_AAN <- ets(train_data, model = "AAN")
 
-summary(interpolated_ets_MAA)
-summary(interpolated_ets_MMM)
-summary(interpolated_ets_AAA)
+
+#summary(interpolated_ets_MAA)
+#summary(interpolated_ets_MMM)
+#summary(interpolated_ets_AAA)
+summary(interpolated_ets_MAN)
+summary(interpolated_ets_MMN)
+summary(interpolated_ets_AAN)
 
 
 
 # Forecast the next 6 months
-ets_forecast_MAA <- forecast(interpolated_ets_MAA, h = horizon)
-ets_forecast_MMM <- forecast(interpolated_ets_MMM, h = horizon)
-ets_forecast_AAA <- forecast(interpolated_ets_AAA, h = horizon)
+#ets_forecast_MAA <- forecast(interpolated_ets_MAA, h = horizon)
+#ets_forecast_MMM <- forecast(interpolated_ets_MMM, h = horizon)
+#ets_forecast_AAA <- forecast(interpolated_ets_AAA, h = horizon)
+ets_forecast_MAN <- forecast(interpolated_ets_MAN, h = horizon)
+ets_forecast_MMN <- forecast(interpolated_ets_MMN, h = horizon)
+ets_forecast_AAN <- forecast(interpolated_ets_AAN, h = horizon)
+
+par(mfrow = c(1, 1))
 
 # Plot the forecast and overlay the actual test data
-plot(ets_forecast_MAA, main = "ETS(M,A,A) Forecast vs. Actual (Last 6 Months)", xlab = "Year", ylab = "Price")
+#plot(ets_forecast_MMM, main = "ETS(M,M,M) Forecast vs. Actual (Last 6 Months)", xlab = "Year", ylab = "Price")
+#lines(actual_data, col = "red", lwd = 2)
+#legend("topleft", legend = c("Forecast", "Actual"), col = c("blue", "red"), lty = 1, lwd = 2)
+
+#plot(ets_forecast_AAA, main = "ETS(A,A,A) Forecast vs. Actual (Last 6 Months)", xlab = "Year", ylab = "Price")
+#lines(actual_data, col = "red", lwd = 2)
+#legend("topleft", legend = c("Forecast", "Actual"), col = c("blue", "red"), lty = 1, lwd = 2)
+
+plot(ets_forecast_MAN, main = "ETS(M,A,N) Forecasted vs. Actual Prices (Last 6 Months)", 
+     xlab = "Year", ylab = "Monthly Average Price ($US/tonne)", ylim=c(0,10500))
 lines(actual_data, col = "red", lwd = 2)
 legend("topleft", legend = c("Forecast", "Actual"), col = c("blue", "red"), lty = 1, lwd = 2)
 
-plot(ets_forecast_MMM, main = "ETS(M,M,M) Forecast vs. Actual (Last 6 Months)", xlab = "Year", ylab = "Price")
+plot(ets_forecast_MMN, main = "ETS(M,M,N) Forecasted vs. Actual Prices (Last 6 Months)", 
+     xlab = "Year", ylab = "Monthly Average Price ($US/tonne)")
 lines(actual_data, col = "red", lwd = 2)
 legend("topleft", legend = c("Forecast", "Actual"), col = c("blue", "red"), lty = 1, lwd = 2)
 
-plot(ets_forecast_AAA, main = "ETS(A,A,A) Forecast vs. Actual (Last 6 Months)", xlab = "Year", ylab = "Price")
+plot(ets_forecast_AAN, main = "ETS(A,A,N) Forecasted vs. Actual Prices (Last 6 Months)",
+     xlab = "Year", ylab = "Monthly Average Price ($US/tonne)", ylim = c(2000, 11000))
 lines(actual_data, col = "red", lwd = 2)
 legend("topleft", legend = c("Forecast", "Actual"), col = c("blue", "red"), lty = 1, lwd = 2)
+
+
 
 
 # Compute forecast accuracy measures on the test set (last 6 months)
 
-print("MAA metrics:\n")
-acc <- accuracy(ets_forecast_MAA, actual_data)
+print("MAN metrics:")
+acc <- accuracy(ets_forecast_MAN, actual_data)
 mae_val <- acc["Test set", "MAE"]
 rmse_val <- acc["Test set", "RMSE"]
-aic_val <- AIC(interpolated_ets_MAA)
-bic_val <- BIC(interpolated_ets_MAA)
+aic_val <- AIC(interpolated_ets_MAN)
+bic_val <- BIC(interpolated_ets_MAN)
 cat("MAE:", mae_val, "\n")
 cat("RMSE:", rmse_val, "\n")
 cat("AIC:", aic_val, "\n")
 cat("BIC:", bic_val, "\n")
 
-
-print("MMM metrics:\n")
-acc <- accuracy(ets_forecast_MMM, actual_data)
+print("MMN metrics:")
+acc <- accuracy(ets_forecast_MMN, actual_data)
 mae_val <- acc["Test set", "MAE"]
 rmse_val <- acc["Test set", "RMSE"]
-aic_val <- AIC(interpolated_ets_MMM)
-bic_val <- BIC(interpolated_ets_MMM)
+aic_val <- AIC(interpolated_ets_MMN)
+bic_val <- BIC(interpolated_ets_MMN)
 cat("MAE:", mae_val, "\n")
 cat("RMSE:", rmse_val, "\n")
 cat("AIC:", aic_val, "\n")
 cat("BIC:", bic_val, "\n")
 
-
-print("AAA metrics:\n")
-acc <- accuracy(ets_forecast_AAA, actual_data)
+print("AAN metrics:")
+acc <- accuracy(ets_forecast_AAN, actual_data)
 mae_val <- acc["Test set", "MAE"]
 rmse_val <- acc["Test set", "RMSE"]
-aic_val <- AIC(interpolated_ets_AAA)
-bic_val <- BIC(interpolated_ets_AAA)
+aic_val <- AIC(interpolated_ets_AAN)
+bic_val <- BIC(interpolated_ets_AAN)
 cat("MAE:", mae_val, "\n")
 cat("RMSE:", rmse_val, "\n")
 cat("AIC:", aic_val, "\n")
 cat("BIC:", bic_val, "\n")
-
 
 
 # Residuals Information
 
-res_MAA <- residuals(interpolated_ets_MAA)
-plot(res_MAA,
-     main='ETS(M,A,A) Residuals for Training Set 2019 - 2024',
+par(mfrow=c(1,1))
+res_MAN <- residuals(interpolated_ets_MAN)
+plot(res_MAN,
+     main='ETS(M,A,N) Residuals',
      ylab = "Residuals",
-     xlab = "Time",
+     xlab = "Year",
      col = "black",
      lwd = 2)
 abline(h = 0, col = "red", lwd = 2,lty=2)
-acf2(res_MAA, main="ACF and PACF Plot of ETS(M,A,A) Residuals")
+
+par(mfrow=c(2,1))
+acf_obj <- acf(res_MAN, lag.max = 15, plot = FALSE)
+# Plot the ACF but suppress the default x-axis
+plot(acf_obj, main = 'ACF of ETS(M,A,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n',
+     ylab='ACF')
+# Create tick marks every 0.25 years (i.e., every 3 months)
+tick_years <- seq(0, max(acf_obj$lag), by = 0.25)
+# Convert these tick values to months for labels
+tick_labels <- round(tick_years * 12)
+# Add the customised x-axis
+axis(1, at = tick_years, labels = tick_labels)
+
+# Compute the PACF without plotting
+pacf_obj <- pacf(res_MAN, lag.max = 15, plot = FALSE)
+plot(pacf_obj, main = 'PACF of ETS(M,A,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n')
+tick_years_pacf <- seq(0, max(pacf_obj$lag), by = 0.25)
+tick_labels_pacf <- round(tick_years_pacf * 12)
+axis(1, at = tick_years_pacf, labels = tick_labels_pacf)
 
 
-res_MMM <- residuals(interpolated_ets_MMM)
-plot(res_MMM,
-main='ETS(M,M,M) Residuals for Training Set 2019 - 2024',
-ylab = "Residuals",
-xlab = "Time",
-col = "black",
-lwd = 2)
+
+par(mfrow=c(1,1))
+res_MMN <- residuals(interpolated_ets_MMN)
+plot(res_MMN,
+     main='ETS(M,M,N) Residuals',
+     ylab = "Residuals",
+     xlab = "Year",
+     col = "black",
+     lwd = 2)
 abline(h = 0, col = "red", lwd = 2,lty=2)
-acf2(res_MMM, main="ACF and PACF Plot of ETS(M,A,A) Residuals")
+
+par(mfrow=c(2,1))
+acf_obj <- acf(res_MMN, lag.max = 15, plot = FALSE)
+# Plot the ACF but suppress the default x-axis
+plot(acf_obj, main = 'ACF of ETS(M,M,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n',
+     ylab='ACF')
+tick_years <- seq(0, max(acf_obj$lag), by = 0.25)
+tick_labels <- round(tick_years * 12)
+axis(1, at = tick_years, labels = tick_labels)
+
+# Compute the PACF without plotting
+pacf_obj <- pacf(res_MMN, lag.max = 15, plot = FALSE)
+plot(pacf_obj, main = 'PACF of ETS(M,M,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n')
+tick_years_pacf <- seq(0, max(pacf_obj$lag), by = 0.25)
+tick_labels_pacf <- round(tick_years_pacf * 12)
+axis(1, at = tick_years_pacf, labels = tick_labels_pacf)
 
 
-res_AAA <- residuals(interpolated_ets_AAA)
-plot(res_AAA,
-main='ETS(A,A,A) Residuals for Training Set 2019 - 2024',
-ylab = "Residuals",
-xlab = "Time",
-col = "black",
-lwd = 2)
+
+par(mfrow=c(1,1))
+res_AAN <- residuals(interpolated_ets_AAN)
+plot(res_AAN,
+     main='ETS(A,A,N) Residuals',
+     ylab = "Residuals",
+     xlab = "Year",
+     col = "black",
+     lwd = 2)
 abline(h = 0, col = "red", lwd = 2,lty=2)
-acf2(res_MAA, main="ACF and PACF Plot of ETS(A,A,A) Residuals")
+
+par(mfrow=c(2,1))
+acf_obj <- acf(res_AAN, lag.max = 30, plot = FALSE)
+# Plot the ACF but suppress the default x-axis
+plot(acf_obj, main = 'ACF of ETS(A,A,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n',
+     ylab='ACF')
+tick_years <- seq(0, max(acf_obj$lag), by = 0.25)
+tick_labels <- round(tick_years * 12)
+axis(1, at = tick_years, labels = tick_labels)
+
+# Compute the PACF without plotting
+pacf_obj <- pacf(res_AAN, lag.max = 15, plot = FALSE)
+plot(pacf_obj, main = 'PACF of ETS(A,A,N) Residuals - 10yr Training Set', xlab = 'Lag (months)', xaxt = 'n')
+tick_years_pacf <- seq(0, max(pacf_obj$lag), by = 0.25)
+tick_labels_pacf <- round(tick_years_pacf * 12)
+axis(1, at = tick_years_pacf, labels = tick_labels_pacf)
+
+
+# Extract the training and test windows while preserving ts attributes
+testtrain_data <- window(monthly_interp_price_ts, start = time(monthly_interp_price_ts)[train_start_index],
+                         end = time(monthly_interp_price_ts)[test_end_index])
+
+ets(testtrain_data, model="AAN")
+
+
+
+
 
 #### ARIMA-GARCH MODELS ####
 price_data <- read_csv("price_interpolated_data.csv")
