@@ -259,9 +259,6 @@ testtrain_data <- window(monthly_interp_price_ts, start = time(monthly_interp_pr
 ets(testtrain_data, model="AAN")
 
 
-
-
-
 #### ARIMA-GARCH MODELS ####
 price_data <- read_csv("price_interpolated_data.csv")
 price_data <- price_data %>%
@@ -306,228 +303,17 @@ resd_price <- residuals(price_garch)
 plot(resd_price, main = "Residuals from GARCH(1,1) + ARMA(0,4)")
 acf2(resd_price^2, max.lag = 30, main = "ACF/PACF of Squared GARCH Residuals")
 
-##### DAILY INDEXING #####
-
-train_data <- window(
-  price_ts, 
-  start = time(price_ts)[6697], 
-  end   = time(price_ts)[7480]
-)
-
-test_data <- window(
-  price_ts, 
-  start = time(price_ts)[7481], 
-  end   = time(price_ts)[7608]
-)
+##### FULL INDEXING #####
+train_data <- monthly_price_ts[1:344] #225
+test_data  <- monthly_price_ts[345:350]
 
 length_train <- length(train_data)
 length_test  <- length(test_data)
 cat("Training length:", length_train, "\n")
 cat("Test length:", length_test, "\n")
 
-arima_train <- sarima(train_data, 0, 1, 4, details = FALSE) 
-summary(arima_train)
-arima_forecast <- sarima.for(train_data, p=0, d=1, q=4, n.ahead = length_test)
 
-pred_arima <- as.numeric(arima_forecast$pred)
-actual_test <- as.numeric(test_data)
-
-mae_arima  <- mean(abs(actual_test - pred_arima))
-rmse_arima <- sqrt(mean((actual_test - pred_arima)^2))
-
-cat("ARIMA(0,1,4) Forecast Performance:\n")
-cat("  MAE:",  mae_arima,  "\n")
-cat("  RMSE:", rmse_arima, "\n")
-
-plot(
-  c(time(test_data)), actual_test, type = "l",
-  main = "ARIMA(0,1,4) Forecast vs. Actual", 
-  xlab = "Time Index", ylab = "Price"
-)
-lines(c(time(test_data)), pred_arima, col = "red")
-legend(
-  "topleft", 
-  legend = c("Actual", "ARIMA Forecast"), 
-  col    = c("black", "red"),
-  lty    = 1
-)
-
-###### DAILY (DIFF(LOGGED)) #######
-
-train_logret <- diff(log(train_data))
-train_logret <- na.omit(train_logret)
-
-
-best_arma <- auto.arima(
-  train_logret,
-  max.p = 5,       # or some upper bound
-  max.q = 5,       # or some upper bound
-  stationary = FALSE,
-  seasonal = FALSE,
-  ic = "aic",      # or "bic"
-  stepwise = FALSE,# might be slower, but more exhaustive
-  approximation = FALSE
-)
-
-best_arma
-
-best_order <- arimaorder(best_arma)
-p_best <- best_order[1] # AR order
-d_best <- best_order[2] # differencing (should be 0 for returns)
-q_best <- best_order[3] # MA order
-
-cat("Best ARMA orders from auto.arima() on returns: (p,q) =", p_best, q_best, "\n")
-
-spec <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
-  mean.model = list(
-    armaOrder    = c(p_best, q_best),  # from auto.arima
-    include.mean = TRUE
-  ),
-  distribution.model = "std" # Student-t errors, for example
-)
-
-fit_garch <- ugarchfit(
-  spec = spec,
-  data = train_logret
-)
-
-show(fit_garch)
-
-n_ahead <- length(test_data)
-fc_garch <- ugarchforecast(fit_garch, n.ahead = n_ahead)
-
-garch_fore_logrets <- fc_garch@forecast$seriesFor
-
-last_train_price <- log(as.numeric(tail(train_data, 1)))
-cum_log_returns <- cumsum(garch_fore_logrets)
-log_price_forecasts <- last_train_price + cum_log_returns
-garch_price_forecasts <- exp(log_price_forecasts)
-
-
-garch_price_forecasts <- ts(
-  garch_price_forecasts,
-  start     = start(test_data),
-  frequency = frequency(test_data)
-)
-
-rmse_garch <- sqrt(mean((test_data - garch_price_forecasts)^2, na.rm = TRUE))
-mae_garch  <- mean(abs(test_data - garch_price_forecasts), na.rm = TRUE)
-
-cat("\n=== ARIMA+GARCH Performance (auto.arima-based) ===\n")
-cat("RMSE:", rmse_garch, "\n")
-cat("MAE :", mae_garch,  "\n")
-
-plot(
-  test_data, 
-  main = "ARIMA+GARCH Forecast vs. Actual (Daily)", 
-  ylab = "Price", xlab = "Time",
-  type = "l"
-)
-lines(garch_price_forecasts, lty = 2)  # dashed line for the forecast
-legend("topleft", legend = c("Actual", "Forecast"), lty = c(1,2))
-ic <- infocriteria(fit_garch)
-cat("AIC:", ic[1], "  BIC:", ic[2], "\n")
-
-spec_igarch <- ugarchspec(
-  variance.model = list(model = "iGARCH", garchOrder = c(1,1)),
-  mean.model     = list(armaOrder = c(p_best, q_best), include.mean = TRUE),
-  distribution.model = "std"  # Student-t
-)
-
-fit_igarch <- ugarchfit(spec = spec_igarch, data = train_logret)
-
-show(fit_igarch)
-
-n_ahead <- length(test_data)
-fc_igarch <- ugarchforecast(fit_igarch, n.ahead = n_ahead)
-igarch_fore_logrets <- fc_igarch@forecast$seriesFor
-
-last_train_price <- log(as.numeric(tail(train_data, 1)))
-cum_log_returns <- cumsum(igarch_fore_logrets)
-log_price_forecasts <- last_train_price + cum_log_returns
-igarch_price_forecasts <- exp(log_price_forecasts)
-
-igarch_price_forecasts <- ts(
-  igarch_price_forecasts,
-  start = start(test_data),
-  frequency = frequency(test_data)
-)
-
-rmse_igarch <- sqrt(mean((test_data - igarch_price_forecasts)^2, na.rm=TRUE))
-mae_igarch  <- mean(abs(test_data - igarch_price_forecasts), na.rm=TRUE)
-
-cat("IGARCH model: RMSE =", rmse_igarch, "  MAE =", mae_igarch, "\n")
-
-# Plot
-plot(test_data, main="IGARCH Forecast vs. Actual", ylab="Price", xlab="Time", type="l")
-lines(igarch_price_forecasts, lty=2)
-legend("topleft", legend=c("Actual", "IGARCH Forecast"), lty=c(1,2))
-ic <- infocriteria(fit_igarch)
-cat("AIC:", ic[1], "  BIC:", ic[2], "\n")
-
-spec_egarch <- ugarchspec(
-  variance.model = list(model = "eGARCH", garchOrder = c(1,1)),
-  mean.model     = list(armaOrder = c(p_best, q_best), include.mean = TRUE),
-  distribution.model = "std"  # Student-t, could also do "norm", "ged", etc.
-)
-
-fit_egarch <- ugarchfit(spec = spec_egarch, data = train_logret)
-show(fit_egarch)
-
-n_ahead <- length(test_data)
-fc_egarch <- ugarchforecast(fit_egarch, n.ahead = n_ahead)
-egarch_fore_logrets <- fc_egarch@forecast$seriesFor
-
-last_train_price <- as.numeric(tail(train_data, 1))
-egarch_price_forecasts <- numeric(n_ahead)
-egarch_price_forecasts[1] <- last_train_price * exp(egarch_fore_logrets[1])
-for(i in 2:n_ahead){
-  egarch_price_forecasts[i] <- egarch_price_forecasts[i-1] * exp(egarch_fore_logrets[i])
-}
-
-egarch_price_forecasts <- ts(
-  egarch_price_forecasts,
-  start = start(test_data),
-  frequency = frequency(test_data)
-)
-
-rmse_egarch <- sqrt(mean((test_data - egarch_price_forecasts)^2, na.rm = TRUE))
-mae_egarch  <- mean(abs(test_data - egarch_price_forecasts), na.rm = TRUE)
-
-cat("EGARCH model: RMSE =", rmse_egarch, "  MAE =", mae_egarch, "\n")
-
-plot(test_data, main="EGARCH Forecast vs. Actual", ylab="Price", xlab="Time", type="l")
-lines(egarch_price_forecasts, lty=2)
-legend("topleft", legend=c("Actual", "EGARCH Forecast"), lty=c(1,2))
-ic <- infocriteria(fit_egarch)
-cat("AIC:", ic[1], "  BIC:", ic[2], "\n")
-
-
-#### MONTHLY INDEXING #######
-price_xts <- xts(price_data$Price, order.by = Dates)
-monthly_price <- apply.monthly(price_xts, FUN =colMeans)
-monthly_price_ts <- ts(coredata(monthly_price),
-                       start = c(start_year, start_month),
-                       frequency = 12)
-
-train_data <- window(
-  monthly_price_ts,
-  start = time(monthly_price_ts)[1],
-  end   = time(monthly_price_ts)[343]
-)
-
-test_data <- window(
-  monthly_price_ts,
-  start = time(monthly_price_ts)[344],
-  end   = time(monthly_price_ts)[350]
-)
-
-length_train <- length(train_data)
-length_test  <- length(test_data)
-
-cat("Training length:", length_train, "\n")
-cat("Test length:", length_test, "\n")
+###### MONTHLY (DIFFED)) #######
 
 train_logret <- diff(train_data)
 train_logret <- na.omit(train_logret)
@@ -544,7 +330,6 @@ best_arma <- auto.arima(
 )
 
 best_arma
-
 best_order <- arimaorder(best_arma)
 p_best <- best_order[1] 
 d_best <- best_order[2] 
@@ -561,46 +346,289 @@ spec <- ugarchspec(
   distribution.model = "std" 
 )
 
-fit_garch <- ugarchfit(
-  spec = spec,
-  data = train_logret
-)
-
+fit_garch <- ugarchfit(spec = spec, data = train_logret)
 show(fit_garch)
 
 n_ahead <- length(test_data)
 fc_garch <- ugarchforecast(fit_garch, n.ahead = n_ahead)
 
-garch_fore_logrets <- fc_garch@forecast$seriesFor
+mean_for  <- as.numeric(fc_garch@forecast$seriesFor) 
+stdev_for <- as.numeric(fc_garch@forecast$sigmaFor)  
+
+cum_mean <- cumsum(mean_for)
+cum_var  <- cumsum(stdev_for^2)   
+cum_sd   <- sqrt(cum_var)
+
+z_val <- 1.96  
+upper_log <- (cum_mean + z_val * cum_sd)
+lower_log <- (cum_mean - z_val * cum_sd)
 
 last_train_price <- as.numeric(tail(train_data, 1))
-cum_log_returns <- cumsum(garch_fore_logrets)
-log_price_forecasts <- last_train_price + cum_log_returns
-garch_price_forecasts <- log_price_forecasts
+
+log_price_forecasts <- last_train_price + cum_mean
+upper_price_forecasts <- last_train_price + upper_log
+lower_price_forecasts <- last_train_price + lower_log
 
 garch_price_forecasts <- ts(
-  garch_price_forecasts,
-  start     = start(test_data),
+  log_price_forecasts,
+  start = start(test_data),
+  frequency = frequency(test_data)
+)
+upper_ts <- ts(
+  upper_price_forecasts,
+  start = start(test_data),
+  frequency = frequency(test_data)
+)
+lower_ts <- ts(
+  lower_price_forecasts,
+  start = start(test_data),
   frequency = frequency(test_data)
 )
 
 rmse_garch <- sqrt(mean((test_data - garch_price_forecasts)^2, na.rm = TRUE))
 mae_garch  <- mean(abs(test_data - garch_price_forecasts), na.rm = TRUE)
-
 cat("\n=== ARIMA+GARCH Performance (auto.arima-based) ===\n")
 cat("RMSE:", rmse_garch, "\n")
 cat("MAE :", mae_garch,  "\n")
 
 plot(
   test_data, 
-  main = "ARIMA+GARCH Forecast vs. Actual (Monthly)", 
-  ylab = "Price", xlab = "Time",
-  type = "l"
+  main = "ARIMA-GARCH Monthly Forecast vs. Actual 10 Year Dataset (0,1,2)", 
+  ylab = "Price", xlab = "Month",
+  type = "l", ylim = range(c(test_data, upper_ts, lower_ts), na.rm=TRUE)
 )
-lines(garch_price_forecasts, lty = 2)  # dashed line for the forecast
-legend("topleft", legend = c("Actual", "Forecast"), lty = c(1,2))
+lines(garch_price_forecasts, lty = 2, col = "blue")
+lines(upper_ts, lty = 3, col = "red")          
+lines(lower_ts, lty = 3, col = "red")            
+legend(
+  "topleft", 
+  legend = c("Actual", "Forecast", "95% CI"), 
+  lty = c(1,2,3), 
+  col = c("black","blue","red")
+)
+
 ic <- infocriteria(fit_garch)
 cat("AIC:", ic[1], "  BIC:", ic[2], "\n")
+
+spec <- ugarchspec(
+  variance.model = list(garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(0, 2), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+fit <- ugarchfit(spec, data = train_logret)  
+
+show(fit) 
+
+fit_params <- coef(fit)
+fit_stderr <- sqrt(diag(vcov(fit)))  
+
+t_stats <- fit_params / fit_stderr
+
+p_vals <- 2 * pnorm(abs(t_stats), lower.tail = FALSE)
+
+data.frame(
+  Parameter   = names(fit_params),
+  Estimate    = fit_params,
+  StdError    = fit_stderr,
+  tStatistic  = t_stats,
+  pValue      = p_vals
+)
+
+train_data_full <- train_data  
+fit_full <- auto.arima(
+  train_data_full,
+  d = 1,      
+  max.p = 5,
+  max.q = 5,
+  seasonal = FALSE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+
+res_full <- residuals(fit_full)
+
+plot(
+  res_full, 
+  type = "l",
+  main = "ARIMA(0,1,5) Residuals (Full Dataset)",
+  ylab = "Residuals",
+  xlab = "Months"
+)
+abline(h = 0, col = "red", lty = 2)
+
+par(mfrow = c(1,1))
+res_full_sq <- res_full^2
+acf(res_full_sq, main = "ACF of ARIMA(0,1,5) Residuals (Full Dataset)", xlab = "Lag (months)")
+pacf(res_full_sq, main = "PACF of ARIMA(0,1,5) Residuals (Full Dataset)", xlab = "Lag (months)")
+
+#### 10 YEAR INDEXING #######
+
+train_data <- window(
+  monthly_price_ts,
+  start = time(monthly_price_ts)[225],
+  end   = time(monthly_price_ts)[343]
+)
+
+test_data <- window(
+  monthly_price_ts,
+  start = time(monthly_price_ts)[344],
+  end   = time(monthly_price_ts)[350]
+)
+
+length_train <- length(train_data)
+length_test  <- length(test_data)
+
+cat("Training length:", length_train, "\n")
+cat("Test length:", length_test, "\n")
+train_logret <- diff(train_data)
+train_logret <- na.omit(train_logret)
+
+best_arma <- auto.arima(
+  train_logret,
+  max.p = 5,     
+  max.q = 5,     
+  stationary = FALSE,
+  seasonal = FALSE,
+  ic = "aic",  
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+best_arma
+best_order <- arimaorder(best_arma)
+p_best <- best_order[1] 
+d_best <- best_order[2] 
+q_best <- best_order[3] 
+
+cat("Best ARMA orders from auto.arima() on returns: (p,q) =", p_best, q_best, "\n")
+
+spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(
+    armaOrder    = c(p_best, q_best), 
+    include.mean = TRUE
+  ),
+  distribution.model = "std" 
+)
+
+fit_garch <- ugarchfit(spec = spec, data = train_logret)
+show(fit_garch)
+
+n_ahead <- length(test_data)
+fc_garch <- ugarchforecast(fit_garch, n.ahead = n_ahead)
+
+mean_for  <- as.numeric(fc_garch@forecast$seriesFor) 
+stdev_for <- as.numeric(fc_garch@forecast$sigmaFor)  
+
+cum_mean <- cumsum(mean_for)
+cum_var  <- cumsum(stdev_for^2)   
+cum_sd   <- sqrt(cum_var)
+
+z_val <- 1.96  
+upper_log <- (cum_mean + z_val * cum_sd)
+lower_log <- (cum_mean - z_val * cum_sd)
+
+last_train_price <- as.numeric(tail(train_data, 1))
+
+log_price_forecasts <- last_train_price + cum_mean
+upper_price_forecasts <- last_train_price + upper_log
+lower_price_forecasts <- last_train_price + lower_log
+
+garch_price_forecasts <- ts(
+  log_price_forecasts,
+  start = start(test_data),
+  frequency = frequency(test_data)
+)
+upper_ts <- ts(
+  upper_price_forecasts,
+  start = start(test_data),
+  frequency = frequency(test_data)
+)
+lower_ts <- ts(
+  lower_price_forecasts,
+  start = start(test_data),
+  frequency = frequency(test_data)
+)
+
+rmse_garch <- sqrt(mean((test_data - garch_price_forecasts)^2, na.rm = TRUE))
+mae_garch  <- mean(abs(test_data - garch_price_forecasts), na.rm = TRUE)
+cat("\n=== ARIMA+GARCH Performance (auto.arima-based) ===\n")
+cat("RMSE:", rmse_garch, "\n")
+cat("MAE :", mae_garch,  "\n")
+
+plot(
+  test_data, 
+  main = "ARIMA-GARCH Monthly Forecast vs. Actual 10 Year Dataset (0,1,2)", 
+  ylab = "Price", xlab = "Month",
+  type = "l", ylim = range(c(test_data, upper_ts, lower_ts), na.rm=TRUE)
+)
+lines(garch_price_forecasts, lty = 2, col = "blue")  
+lines(upper_ts, lty = 3, col = "red")              
+lines(lower_ts, lty = 3, col = "red")           
+legend(
+  "topleft", 
+  legend = c("Actual", "Forecast", "95% CI"), 
+  lty = c(1,2,3), 
+  col = c("black","blue","red")
+)
+
+ic <- infocriteria(fit_garch)
+cat("AIC:", ic[1], "  BIC:", ic[2], "\n")
+
+spec <- ugarchspec(
+  variance.model = list(garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(0, 2), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+fit <- ugarchfit(spec, data = train_logret)  
+
+show(fit) 
+
+fit_params <- coef(fit)
+fit_stderr <- sqrt(diag(vcov(fit)))  
+
+t_stats <- fit_params / fit_stderr
+
+p_vals <- 2 * pnorm(abs(t_stats), lower.tail = FALSE)
+
+data.frame(
+  Parameter   = names(fit_params),
+  Estimate    = fit_params,
+  StdError    = fit_stderr,
+  tStatistic  = t_stats,
+  pValue      = p_vals
+)
+
+train_data_full <- train_data  
+fit_full <- auto.arima(
+  train_data_full,
+  d = 1,      
+  max.p = 5,
+  max.q = 5,
+  seasonal = FALSE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+
+res_full <- residuals(fit_full)
+
+plot(
+  res_full, 
+  type = "l",
+  main = "ARIMA(0,1,2) Residuals (10 Year Dataset)",
+  ylab = "Residuals",
+  xlab = "Months"
+)
+abline(h = 0, col = "red", lty = 2)
+
+par(mfrow = c(1,1))
+res_full_sq <- res_full^2
+acf(res_full_sq, main = "ACF of ARIMA(0,1,2) Residuals (10 Year Dataset)", xlab = "Lag (months)")
+pacf(res_full_sq, main = "PACF of ARIMA(0,1,2) Residuals (10 Year Dataset)", xlab = "Lag (months)")
 
 ##### BREAKPOINTS BAI PERRON TESTS #####
 
